@@ -19,10 +19,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from flask import request
-from storm.expr import Or
+from storm.expr import Or, And
 import uuid
 from supysonic.web import app, store
-from supysonic.db import Playlist, User, Track
+from supysonic.db import Playlist, User, Track, now
 from . import get_entity
 
 @app.route('/rest/getPlaylists.view', methods = [ 'GET', 'POST' ])
@@ -60,7 +60,17 @@ def create_playlist():
 	except:
 		return request.error_formatter(0, 'Invalid parameter')
 
-	if playlist_id:
+	if name:
+		# check if the user already has a playlist with that name
+		playlist = store.find(Playlist, And(Playlist.user_id == request.user.id, Playlist.name == name)).one()
+		if playlist:
+			playlist.tracks.clear()
+		else:
+			playlist = Playlist()
+			playlist.user_id = request.user.id
+			playlist.name = name
+			store.add(playlist)
+	elif playlist_id:
 		playlist = store.get(Playlist, playlist_id)
 		if not playlist:
 			return request.error_formatter(70, 'Unknwon playlist')
@@ -71,11 +81,6 @@ def create_playlist():
 		playlist.tracks.clear()
 		if name:
 			playlist.name = name
-	elif name:
-		playlist = Playlist()
-		playlist.user_id = request.user.id
-		playlist.name = name
-		store.add(playlist)
 	else:
 		return request.error_formatter(10, 'Missing playlist id or name')
 
@@ -85,6 +90,9 @@ def create_playlist():
 			return request.error_formatter(70, 'Unknown song')
 
 		playlist.tracks.add(track)
+
+	# update "created" timestamp for already existing playlists
+	playlist.created = now()
 
 	store.commit()
 	return request.formatter({})
@@ -140,6 +148,9 @@ def update_playlist():
 		if idx < 0 or idx >= len(tracks):
 			return request.error_formatter(0, 'Index out of range')
 		playlist.tracks.remove(tracks[idx])
+
+	# update "created" timestamp for already existing playlists
+	playlist.created = now()
 
 	store.commit()
 	return request.formatter({})
